@@ -44,7 +44,7 @@ def save_web_page(link, file_name):
         file.write(str(soup))
 
 
-def download_dumps(path, page_visited_count, max_page_count=1):
+def download_dumps(path, page_visited_count, max_page_count=2):
     if page_visited_count > max_page_count: return
     page_visited_count += 1
     logger.info(f"Page {page_visited_count}: {path}")
@@ -535,24 +535,6 @@ def parse_dumps():
 
 
 def index_documents(docs):
-    # Check if this is one of our test threads (Quantum Recovery or Post Quantum Migration)
-    is_quantum_recovery_thread = any("Against-Allowing-Quantum-Recovery-of-Bitcoin" in doc.get('title', '') or 
-                                    "Against Allowing Quantum Recovery" in doc.get('title', '') for doc in docs)
-    
-    is_post_quantum_thread = any("A Post Quantum Migration Proposal" in doc.get('title', '') or
-                                "Post Quantum Migration" in doc.get('title', '') for doc in docs)
-    
-    is_test_thread = is_quantum_recovery_thread or is_post_quantum_thread
-    
-    if is_test_thread:
-        if is_quantum_recovery_thread:
-            logger.success("🎯 Processing Quantum Recovery thread")
-        if is_post_quantum_thread:
-            logger.success("🎯 Processing Post Quantum Migration thread")
-    else:
-        logger.warning("🚫 Skipping non-test thread")
-        return  # Skip processing entirely for non-test threads
-    
     new_docs = 0
     existing_docs = 0
     threading_docs = 0
@@ -572,14 +554,12 @@ def index_documents(docs):
 
         resp = document_view(index_name=INDEX_NAME, doc_id=doc['id'])
         if not resp:
-            # Process all new documents in Quantum thread
+            # Process all new documents
             _ = document_add(index_name=INDEX_NAME, doc=doc, doc_id=doc['id'])
             new_docs += 1
             
             if has_threading and doc.get("thread_depth", 0) > 0:
                 logger.success(f'✅ Added: {doc.get("authors", ["Unknown"])[0]} (depth {doc.get("thread_depth", 0)})')
-            elif not has_threading:
-                logger.warning(f'⚠️ No threading data: {doc.get("authors", ["Unknown"])[0]}')
         else:
             existing_docs += 1
             
@@ -589,8 +569,6 @@ def index_documents(docs):
             
             if has_threading and doc.get("thread_depth", 0) > 0:
                 logger.success(f'✅ Updated: {doc.get("authors", ["Unknown"])[0]} (depth {doc.get("thread_depth", 0)})')
-            elif not has_threading:
-                logger.warning(f'⚠️ No threading data to update: {doc.get("authors", ["Unknown"])[0]}')
     
     logger.success("📊 INDEXING SUMMARY:")
     logger.success(f"    📝 Total documents processed: {len(docs)}")
@@ -598,19 +576,10 @@ def index_documents(docs):
     logger.success(f"    📄 Existing documents: {existing_docs}")
     logger.success(f"    🔄 Documents updated: {updated_docs}")
     logger.success(f"    🧵 Documents with threading data: {threading_docs}")
-    
-    # Show which test thread mode is active
-    if is_quantum_recovery_thread:
-        logger.success(f"    🎯 Test thread mode: QUANTUM RECOVERY")
-    elif is_post_quantum_thread:
-        logger.success(f"    🎯 Test thread mode: POST QUANTUM MIGRATION")
-    else:
-        logger.success(f"    🎯 Test thread mode: OFF")
 
 
 if __name__ == "__main__":
     logger.info("🚀 Starting mailing list scraper with threading support")
-    logger.warning("⚠️ TEST MODE: Only processing Quantum threads for safety")
     
     if not os.path.exists(DOWNLOAD_PATH):
         os.makedirs(DOWNLOAD_PATH)

@@ -271,6 +271,9 @@ def _parse_thread_lines_fixed(lines, thread_overview_soup):
         if author.lower() in ["utc", "newest", "flat", "nested", "permalink", "raw", "reply"]:
             continue
         
+        # Sanitize author to prevent title-in-author and timestamp bugs
+        author = sanitize_author(author)
+        
         thread_structure.append({
             'timestamp': timestamp,
             'anchor_id': anchor_id,
@@ -374,6 +377,58 @@ def get_author(content_soup):
     
     logger.warning(f"⚠️ AUTHOR: Could not extract author from content")
     return "Unknown Author"
+
+
+def sanitize_author(author, max_length=60):
+    """
+    Sanitize author name to prevent common bugs:
+    - Author too long (likely contains title)
+    - UTC | newest pattern
+    - Timestamps in author
+    """
+    if not author:
+        return "Unknown Author"
+    
+    author = str(author).strip()
+    
+    # Remove 'UTC | newest]' pattern
+    if 'UTC' in author and '|' in author and 'newest' in author:
+        return "Unknown Author"
+    
+    # Remove timestamps at the end in various formats:
+    # - "2025-12-12 20:17:00+00:00"
+    # - "2025-12-12T20:17:00.000Z"
+    # - "2025-12-12 20:17:00"
+    author = re.sub(r'\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[+\-]\d{2}:\d{2}$', '', author)
+    author = re.sub(r'\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*$', '', author)
+    author = re.sub(r'\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$', '', author)
+    author = re.sub(r'\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$', '', author)
+    
+    # If author is too long, extract last words that aren't dates/timestamps
+    if len(author) > max_length:
+        words = author.split()
+        real_author_words = []
+        
+        for word in reversed(words):
+            # Skip if word looks like a date or timestamp component
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', word):  # Date: 2025-12-11
+                continue
+            if re.match(r'^\d{1,2}:\d{2}(:\d{2})?$', word):  # Time: 12:30 or 12:30:00
+                continue
+            if re.match(r'^\d{4}$', word):  # Year: 2025
+                continue
+            if re.match(r'^[+\-]\d{2}:\d{2}$', word):  # Timezone: +00:00
+                continue
+            
+            real_author_words.insert(0, word)
+            # Most author names are 1-3 words
+            if len(real_author_words) >= 2:
+                break
+        
+        if real_author_words:
+            author = ' '.join(real_author_words)
+    
+    return author.strip() if author.strip() else "Unknown Author"
 
 
 def href_contains_text(tag, search_text):

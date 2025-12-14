@@ -144,6 +144,8 @@ def _parse_thread_lines_fixed(lines, thread_overview_soup):
             "mbox.gz" in line or
             "Atom feed" in line or
             "end of thread" in line or
+            "only message in thread" in line or
+            "other threads:" in line or
             not line.strip()):
             continue
         
@@ -222,10 +224,20 @@ def _parse_thread_lines_fixed(lines, thread_overview_soup):
         # Remove [bitcoindev] and quote marks
         author = re.sub(r'^\[bitcoindev\]\s*["\s]*', '', author)
         author = re.sub(r'^["\s]*', '', author)
+        # Remove leading/trailing backticks and whitespace
         author = author.strip('\'"` \t')
+        # Remove any remaining backticks from the middle
+        author = author.replace('`', '')
         
         # Remove "via Bitcoin Development Mailing List" suffix
         author = re.sub(r'\s+via\s+Bitcoin\s+Development\s+Mailing\s+List.*$', '', author, flags=re.IGNORECASE).strip()
+        
+        # Filter out navigation/timestamp artifacts like "UTC | newest]"
+        # These come from the thread overview navigation links
+        if re.search(r'UTC\s*\|\s*newest', author, re.IGNORECASE):
+            continue
+        if re.search(r'^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}\s+UTC', author):
+            continue
         
         # Handle empty author
         if not author or len(author) < 2:
@@ -251,16 +263,23 @@ def _parse_thread_lines_fixed(lines, thread_overview_soup):
         # Final cleanup
         author = author.strip()
         
-        if author and len(author) > 1:
-            thread_structure.append({
-                'timestamp': timestamp,
-                'anchor_id': anchor_id,
-                'author': author,
-                'depth': thread_depth,
-                'line': line.strip(),
-                'leading_spaces': leading_spaces,
-                'has_backtick': has_backtick
-            })
+        # Final validation: skip if author looks like navigation/metadata
+        if not author or len(author) <= 1:
+            continue
+        if "UTC" in author and "|" in author and "newest" in author:
+            continue
+        if author.lower() in ["utc", "newest", "flat", "nested", "permalink", "raw", "reply"]:
+            continue
+        
+        thread_structure.append({
+            'timestamp': timestamp,
+            'anchor_id': anchor_id,
+            'author': author,
+            'depth': thread_depth,
+            'line': line.strip(),
+            'leading_spaces': leading_spaces,
+            'has_backtick': has_backtick
+        })
     
     logger.success(f"✅ THREADING: Extracted {len(thread_structure)} messages")
     
@@ -313,6 +332,8 @@ def get_author(content_soup):
             author = author.replace("via Bitcoin Development Mailing List", "").strip()
             # Handle special characters
             author = author.replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">")
+            # Remove backticks
+            author = author.replace("`", "").strip()
             return author
     
     # Fallback: try the From: line method
@@ -327,6 +348,8 @@ def get_author(content_soup):
                 author = author.replace("'", "").replace("via Bitcoin Development Mailing List", "").strip()
                 # Handle special characters
                 author = author.replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">")
+                # Remove backticks
+                author = author.replace("`", "").strip()
                 return author
     
     # Enhanced fallback: look for any line with author pattern
@@ -338,8 +361,15 @@ def get_author(content_soup):
             # Skip if it looks like a subject line or other metadata
             if not any(skip in potential_author.lower() for skip in ['[bitcoindev]', 'thread overview', 'mbox.gz', 'atom feed', '`']):
                 if len(potential_author) > 3 and not potential_author.startswith('http'):
+                    # Skip navigation/metadata patterns
+                    if "UTC" in potential_author and "|" in potential_author and "newest" in potential_author:
+                        continue
+                    if potential_author.lower() in ["utc", "newest", "flat", "nested", "permalink", "raw", "reply"]:
+                        continue
                     author = potential_author.replace("via Bitcoin Development Mailing List", "").strip()
                     author = author.replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">")
+                    # Remove backticks
+                    author = author.replace("`", "").strip()
                     return author
     
     logger.warning(f"⚠️ AUTHOR: Could not extract author from content")
